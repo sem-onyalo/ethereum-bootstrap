@@ -2,25 +2,76 @@ package main
 
 import (
 	"fmt"
+	"math/rand"
 	"os"
 	"strings"
+	"time"
 
+	"github.com/ethereum/go-ethereum/accounts/keystore"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/p2p/discover"
 	"github.com/ethereum/go-ethereum/p2p/nat"
 	"github.com/ethereum/go-ethereum/p2p/netutil"
 )
 
+var charRunes = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890!@#$%^&*()-_+=")
+
+var defaultChainDir = "ethbs\\private-chain"
+
+var genesisTemplate = `{
+	"config": {
+		"chainId": 0,
+		"homesteadBlock": 0,
+		"eip155Block": 0,
+		"eip158Block": 0
+	},
+	"alloc": {
+		"[ACCOUNT_ADDR_1]": {
+			"balance": "222222222"
+		}
+	},
+	"coinbase"   : "0x0000000000000000000000000000000000000000",
+	"difficulty" : "0x400",
+	"extraData"  : "",
+	"gasLimit"   : "0x2fefd8",
+	"nonce"      : "[NONCE]",
+	"mixhash"    : "0x0000000000000000000000000000000000000000000000000000000000000000",
+	"parentHash" : "0x0000000000000000000000000000000000000000000000000000000000000000",
+	"timestamp"  : "0x00"
+}`
 
 func main() {
-	createChainDir("ethbs\\private-chain")
-	startBootNode("ethbs\\boot.key")
+	rand.Seed(time.Now().UnixNano())
+
+	if err := createChainDir(defaultChainDir); err != nil {
+		return
+	}
+
+	if err := startBootNode("ethbs\\boot.key"); err != nil {
+		return
+	}
+
+	address, err := createAccount()
+	if err != nil {
+		return
+	}
+
+	var genesisJSON = genesisTemplate
+	genesisJSON = strings.Replace(genesisJSON, "[ACCOUNT_ADDR_1]", address.Hex(), 1)
+	genesisJSON = strings.Replace(genesisJSON, "[NONCE]", fmt.Sprintf("0x%x", rand.Intn(4294967295)), 1)
+
+	fmt.Printf("genesis.json: %s\n", genesisJSON)
 }
 
-func createChainDir(dir string) {
+func createChainDir(dir string) (error) {
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		os.MkdirAll(dir, 0600);
+		if err = os.MkdirAll(dir, 0600); err != nil {
+			fmt.Printf("could not create chain directory: %v\n", err)
+			return err
+		}
 	}
+	return nil
 }
 
 func startBootNode(filename string) (err error) {
@@ -64,4 +115,27 @@ func createBootKey(filename string) (err error) {
 		}
 	}
 	return nil
+}
+
+func createAccount() (common.Address, error) {
+	var address common.Address
+	var password = randString(16)
+	scryptN := keystore.StandardScryptN
+	scryptP := keystore.StandardScryptP
+	address, err := keystore.StoreKey(defaultChainDir, password, scryptN, scryptP)
+
+	if err != nil {
+		fmt.Printf("Failed to create account: %v", err)
+		return address, err
+	}
+	fmt.Printf("Account address: {%x}, account password: %s\n", address, password)
+	return address, nil
+}
+
+func randString(n int) string {
+    b := make([]rune, n)
+    for i := range b {
+        b[i] = charRunes[rand.Intn(len(charRunes))]
+    }
+    return string(b)
 }
